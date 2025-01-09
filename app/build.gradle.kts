@@ -70,7 +70,8 @@ dependencies {
     androidTestImplementation(libs.androidx.ui.test.junit4)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
-    implementation("androidx.core:core-ktx:1.9.0") // Or latest
-    implementation("androidx.media:media:1.6.0")
-    implementation("com.google.code.gson:gson:2.10.1")
+    implementation(libs.androidx.core.ktx.v190) // Or latest
+    implementation(libs.androidx.media)
+    implementation(libs.gson)
+    implementation(libs.okhttp)
 }

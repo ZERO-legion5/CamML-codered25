@@ -3,12 +3,14 @@ package com.zero.camml
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.AlertDialog
-import android.content.BroadcastReceiver
 import android.content.Context
+import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.asRequestBody
+import java.io.IOException
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
-import android.database.ContentObserver
 import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
 import android.graphics.Matrix
@@ -17,6 +19,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import java.text.SimpleDateFormat
+import android.content.DialogInterface
 import java.util.Date
 import android.graphics.Outline
 import android.graphics.SurfaceTexture
@@ -26,7 +29,6 @@ import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
 import android.media.AudioManager
 import android.media.ImageReader
-import android.media.session.MediaSession
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
@@ -42,7 +44,6 @@ import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
-import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuItem
@@ -59,7 +60,6 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
-import androidx.appcompat.widget.AppCompatImageButton
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.ai.client.generativeai.GenerativeModel
@@ -86,24 +86,23 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var handlerThread: HandlerThread
     private lateinit var imageReader: ImageReader
     private lateinit var resultView: TextView
-    private lateinit var imageButton: ImageButton
     private lateinit var textToSpeech: TextToSpeech
-    private lateinit var audioButton: ImageButton
     private lateinit var modeButton: ImageButton
     private lateinit var modelButton: ImageButton
     private lateinit var speechRecognizer: SpeechRecognizer
     private lateinit var sharedPreferences: SharedPreferences
     private val conversationHistoryKey = "conversationhistory"
+    private var apiEndpoint = "" // Store the API endpoint (IP and port)
+    private val apiEndpointKey = "generate_caption"
+    private val client = OkHttpClient()
     private var promptText = ""
     private var isSpeaking = false
     private var lastPrompt = ""
-    private var mode_value = "Navigation"
-    private var model_value = "Gemini"
+    private var modeValue = "Navigation"
+    private var modelValue = "Gemini"
     private lateinit var audioManager: AudioManager
-    private lateinit var voiceCommandButton: Button
     private var isListeningForCommand = false
     private var currentVolume: Int = -1
-    private val handler1 = Handler(Looper.getMainLooper())
     private var timer: Timer? = null
     private val mainHandler = Handler(Looper.getMainLooper()) // Handler for the main thread
     private var currentPrompt: String // Store the current prompt
@@ -204,8 +203,67 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 showApiKeyInputDialog()
                 true
             }
+            R.id.API_Endpoint -> {
+                showApiKeyInputDialog()
+                true
+            }
             else -> super.onOptionsItemSelected(item)
         }
+    }
+
+    private fun showApiEndpointInputDialog() {
+        val editText = EditText(this)
+        editText.hint = "Enter API Endpoint (IP:Port)"
+
+        val layout = LinearLayout(this)
+        layout.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        layout.orientation = LinearLayout.VERTICAL
+        layout.gravity = Gravity.CENTER
+
+        val marginInDp = 20
+        val marginInPx = TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_DIP,
+            marginInDp.toFloat(),
+            resources.displayMetrics
+        ).toInt()
+
+        val params = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        params.setMargins(marginInPx, 0, marginInPx, 0)
+        editText.layoutParams = params
+
+        layout.addView(editText)
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Developer Settings")
+            .setMessage("Please enter your API Endpoint (IP:Port):")
+            .setView(layout)
+            .setPositiveButton("OK") { _, _ ->
+                val endpoint = editText.text.toString().trim()
+                if (endpoint.isNotEmpty()) {
+                    handleApiEndpoint(endpoint)
+                } else {
+                    Toast.makeText(this, "API Endpoint cannot be empty", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .create()
+
+        dialog.show()
+    }
+
+    private fun handleApiEndpoint(endpoint: String) {
+        apiEndpoint = endpoint // Save to the variable
+        val editor = sharedPreferences.edit()
+        editor.putString(apiEndpointKey, endpoint)
+        editor.apply()
+
+        Toast.makeText(this, "API Endpoint saved successfully", Toast.LENGTH_SHORT).show()
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
@@ -215,10 +273,12 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         textureView = findViewById(R.id.textureview)
         cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+        sharedPreferences = getSharedPreferences("AppPreferences", MODE_PRIVATE)
 
         handlerThread = HandlerThread("CameraHandlerThread")
         handlerThread.start()
         handler = Handler(handlerThread.looper)
+        apiEndpoint = sharedPreferences.getString(apiEndpointKey, "") ?: ""
 
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         sharedPreferences = getSharedPreferences("AppPreferences", MODE_PRIVATE)
@@ -290,7 +350,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             opStream.close()
             image.close()
             Toast.makeText(this@MainActivity, "Processing", Toast.LENGTH_SHORT).show()
-            sendDataAPI(generativeModel, currentPrompt, resultView)
+            sendDataAPI(generativeModel, resultView)
         }, handler)
 
         speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
@@ -315,13 +375,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         findViewById<ImageButton>(R.id.model_button).apply{
             setOnClickListener{
 
-                if (model_value == "Gemini") {
-                    model_value = "API"
-                } else if (model_value == "API") {
-                    model_value = "Gemini"
+                if (modelValue == "Gemini") {
+                    modelValue = "API"
+                } else if (modelValue == "API") {
+                    modelValue = "Gemini"
                 }
 
-                Toast.makeText(this@MainActivity, model_value, Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, modelValue, Toast.LENGTH_SHORT).show()
 
             }
         }
@@ -340,18 +400,22 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         findViewById<ImageButton>(R.id.mode_button).apply {
             setOnClickListener {
-                if (mode_value == "Navigation") {
-                    mode_value = "Detection"
-                    currentPrompt = detectionPrompt // Correctly update the class-level variable
-                } else if (mode_value == "Detection") {
-                    mode_value = "OCR"
-                    currentPrompt = ocrPrompt // Correctly update the class-level variable
-                } else if (mode_value == "OCR") {
-                    mode_value = "Navigation"
-                    currentPrompt = navigationPrompt // Correctly update the class-level variable
+                when (modeValue) {
+                    "Navigation" -> {
+                        modeValue = "Detection"
+                        currentPrompt = detectionPrompt // Correctly update the class-level variable
+                    }
+                    "Detection" -> {
+                        modeValue = "OCR"
+                        currentPrompt = ocrPrompt // Correctly update the class-level variable
+                    }
+                    "OCR" -> {
+                        modeValue = "Navigation"
+                        currentPrompt = navigationPrompt // Correctly update the class-level variable
+                    }
                 }
 
-                Toast.makeText(this@MainActivity, mode_value, Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, modeValue, Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -443,7 +507,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val gson = Gson()
 
         val type = object : TypeToken<ArrayList<Message>>() {}.type
-        var conversationHistory: ArrayList<Message> = gson.fromJson(sharedPreferences.getString(conversationHistoryKey, null), type) ?: ArrayList()
+        val conversationHistory: ArrayList<Message> = gson.fromJson(sharedPreferences.getString(conversationHistoryKey, null), type) ?: ArrayList()
 
         val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
         val currentDateAndTime: String = sdf.format(Date())
@@ -631,52 +695,117 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
-    private fun sendDataAPI(generativeModel: GenerativeModel, prompt: String, resultView: TextView) {
+    private fun sendDataAPI(generativeModel: GenerativeModel, resultView: TextView) {
 
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val imagePath = getExternalFilesDir(Environment.DIRECTORY_PICTURES)?.absolutePath + "/img.jpeg"
-                val imageFile = File(imagePath)
+        if (modelValue == "Gemini") {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val imagePath =
+                        getExternalFilesDir(Environment.DIRECTORY_PICTURES)?.absolutePath + "/img.jpeg"
+                    val imageFile = File(imagePath)
 
-                if (imageFile.exists()) {
-                    val bitmap = BitmapFactory.decodeStream(FileInputStream(imageFile))
+                    if (imageFile.exists()) {
+                        val bitmap = BitmapFactory.decodeStream(FileInputStream(imageFile))
 
-                    if (promptText == lastPrompt) promptText = ""
-                    val inputContent = content {
+                        if (promptText == lastPrompt) promptText = ""
+                        val inputContent = content {
 
-                        image(bitmap)
-                        text(currentPrompt + promptText)
+                            image(bitmap)
+                            text(currentPrompt + promptText)
 
+                        }
+                        lastPrompt = promptText
+
+                        // Send the image to the API with the prompt
+                        val response = generativeModel.generateContent(inputContent)
+
+                        withContext(Dispatchers.Main) {
+                            resultView.text = response.text.toString().replace("OBJ", "").trim()
+                            addMessageToHistory(promptText, true) // Add user message to history
+                            addMessageToHistory(
+                                response.text.toString().replace("OBJ", "").trim(),
+                                false
+                            ) // Add AI response to history
+                        }
+
+
+                        checkAndVibrate(response.text.toString())
+
+                        isSpeaking = false
+                        toggleSpeech()
+
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(
+                                this@MainActivity,
+                                "Image file not found",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
                     }
-                    lastPrompt = promptText
-
-                    // Send the image to the API with the prompt
-                    val response = generativeModel.generateContent(inputContent)
-
+                } catch (e: Exception) {
                     withContext(Dispatchers.Main) {
-                        resultView.text = response.text.toString().replace("OBJ", "").trim()
-                        addMessageToHistory(promptText, true) // Add user message to history
-                        addMessageToHistory(response.text.toString().replace("OBJ", "").trim(), false) // Add AI response to history
-                    }
-
-
-                    checkAndVibrate(response.text.toString())
-
-                    isSpeaking = false
-                    toggleSpeech()
-
-                } else {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(this@MainActivity, "Image file not found", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT)
+                            .show()
                     }
                 }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        } else if (modelValue == "API") {
+            // New HTTP POST logic
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val imagePath = getExternalFilesDir(Environment.DIRECTORY_PICTURES)?.absolutePath + "/img.jpeg"
+                    val imageFile = File(imagePath)
+
+                    if (imageFile.exists()) {
+                        val requestBody = MultipartBody.Builder()
+                            .setType(MultipartBody.FORM)
+                            .addFormDataPart(
+                                "image",
+                                imageFile.name,
+                                imageFile.asRequestBody("image/jpeg".toMediaTypeOrNull())
+                            )
+                            .build()
+
+                        val request = Request.Builder()
+                            .url(apiEndpoint)
+                            .post(requestBody)
+                            .build()
+
+                        client.newCall(request).execute().use { response ->
+                            if (!response.isSuccessful) {
+                                withContext(Dispatchers.Main) {
+                                    Toast.makeText(this@MainActivity, "API Error: ${response.code}", Toast.LENGTH_SHORT).show()
+                                }
+                                return@launch
+                            }
+
+                            val responseBody = response.body?.string()
+                            withContext(Dispatchers.Main) {
+                                resultView.text = responseBody?.trim() ?: "No response from API"
+                                addMessageToHistory(promptText, true) // Add user message to history
+                                addMessageToHistory(responseBody?.trim() ?: "No response from API", false) // Add API response to history
+                            }
+                            checkAndVibrate(responseBody ?: "")
+                            isSpeaking = false
+                            toggleSpeech()
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(this@MainActivity, "Image file not found", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } catch (e: IOException) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@MainActivity, "Network Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
         }
-
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
@@ -769,26 +898,26 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun processVoiceCommand(command: String) {
         when {
             command.contains("navigation") -> {
-                mode_value = "Navigation"
+                modeValue = "Navigation"
                 currentPrompt = navigationPrompt
                 Toast.makeText(this, "Switching to Navigation mode", Toast.LENGTH_SHORT).show()
             }
             command.contains("detection") -> {
-                mode_value = "Detection"
+                modeValue = "Detection"
                 currentPrompt = detectionPrompt
                 Toast.makeText(this, "Switching to Detection mode", Toast.LENGTH_SHORT).show()
             }
             command.contains("ocr") -> {
-                mode_value = "OCR"
+                modeValue = "OCR"
                 currentPrompt = ocrPrompt
                 Toast.makeText(this, "Switching to OCR mode", Toast.LENGTH_SHORT).show()
             }
             command.contains("gemini") -> {
-                model_value = "Gemini"
+                modelValue = "Gemini"
                 Toast.makeText(this, "Switching to Gemini model", Toast.LENGTH_SHORT).show()
             }
             command.contains("api") -> {
-                model_value = "API"
+                modelValue = "API"
                 Toast.makeText(this, "Switching to API model", Toast.LENGTH_SHORT).show()
             }
             else -> {
@@ -832,6 +961,11 @@ class ConversationHistoryActivity : AppCompatActivity() {
         recyclerView.layoutManager = LinearLayoutManager(this)
 
         loadConversationHistory()
+
+        val deleteButton : Button = findViewById(R.id.delete_history_button) // Find the delete button
+        deleteButton.setOnClickListener {
+            deleteConversationHistory()
+        }
     }
 
     private fun loadConversationHistory() {
@@ -842,10 +976,20 @@ class ConversationHistoryActivity : AppCompatActivity() {
         adapter = ConversationAdapter(conversationHistory)
         recyclerView.adapter = adapter
     }
+
+    private fun deleteConversationHistory() {
+        val editor = sharedPreferences.edit()
+        editor.remove(conversationHistoryKey) // Remove the history from SharedPreferences
+        editor.apply()
+
+        // Update the RecyclerView
+        adapter.updateData(emptyList()) // Update the adapter with an empty list
+        Toast.makeText(this,"Conversation History Cleared",Toast.LENGTH_SHORT).show()
+    }
 }
 
 // Create an Adapter: ConversationAdapter.kt
-class ConversationAdapter(private val messages: List<MainActivity.Message>) : RecyclerView.Adapter<ConversationAdapter.MessageViewHolder>() {
+class ConversationAdapter(private var messages: List<MainActivity.Message>) : RecyclerView.Adapter<ConversationAdapter.MessageViewHolder>() {
 
     class MessageViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         val messageTextView: TextView = itemView.findViewById(R.id.message_text) // Create this TextView in item_message.xml
@@ -867,8 +1011,18 @@ class ConversationAdapter(private val messages: List<MainActivity.Message>) : Re
     }
 
     override fun getItemCount() = messages.size
+
+    fun updateData(newMessages: List<MainActivity.Message>) {
+        messages = newMessages
+        notifyDataSetChanged()
+    }
 }
 
 fun String.toTitleCase(): String {
-    return split(" ").joinToString(" ") { it.capitalize() }
+    return split(" ").joinToString(" ") { it ->
+        it.replaceFirstChar {
+        if (it.isLowerCase()) it.titlecase(
+            Locale.ROOT
+        ) else it.toString()
+    } }
 }

@@ -5,4 +5,8 @@
         android:id="@+id/Gemini_API_Key"
         android:title="@string/gemini_api_key"/>
 
+    <item
+        android:id="@+id/API_Endpoint"
+        android:title="@string/api_endpoint" />
+
 </menu>
