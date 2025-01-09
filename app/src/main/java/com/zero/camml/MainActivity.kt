@@ -45,6 +45,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.AppCompatImageButton
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.ai.client.generativeai.GenerativeModel
@@ -72,6 +73,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var imageButton: ImageButton
     private lateinit var textToSpeech: TextToSpeech
     private lateinit var audioButton: ImageButton
+    private lateinit var modeButton: ImageButton
+    private lateinit var modelButton: ImageButton
     private lateinit var speechRecognizer: SpeechRecognizer
     private var promptText = ""
     private var isSpeaking = false
@@ -223,9 +226,21 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             sendDataAPI(generativeModel, prompt, resultView)
         }, handler)
 
-        findViewById<Button>(R.id.capture_button).apply{
+        findViewById<Button>(R.id.voice_command).apply{
             setOnClickListener{
-                mainfn()
+                // To Implement Voice Commands
+            }
+        }
+
+        findViewById<ImageButton>(R.id.model_button).apply{
+            setOnClickListener{
+                // To Implement Switching between multiple models
+            }
+        }
+
+        findViewById<ImageButton>(R.id.mode_button).apply{
+            setOnClickListener{
+                // To Implement Switching between multiple modes
             }
         }
 
@@ -247,6 +262,24 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
         }
         audioButton.clipToOutline = true
+
+        modeButton = findViewById(R.id.mode_button)
+        modeButton.outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) {
+                val diameter = view.width.coerceAtMost(view.height)
+                outline.setOval(0, 0, diameter, diameter)
+            }
+        }
+        modeButton.clipToOutline = true
+
+        modelButton = findViewById(R.id.model_button)
+        modelButton.outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) {
+                val diameter = view.width.coerceAtMost(view.height)
+                outline.setOval(0, 0, diameter, diameter)
+            }
+        }
+        modelButton.clipToOutline = true
 
         textToSpeech = TextToSpeech(this, this)
 

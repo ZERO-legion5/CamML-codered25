@@ -6,7 +6,7 @@
     <string name="speech_error">Error Recognizing Speech</string>
     <string name="speech_recognition">Speech Recognition</string>
     <string name="content_description">Click to Start Description</string>
-    <string name="title_activity_camera_capture">CameraCapture</string>
+    <string name="title_activity_camera_capture">Voice Command</string>
     <string name="title_activity_main2">MainActivity2</string>
     <string name="title_activity_secondary">CameraActivity</string>
     <string name="gemini_api_key">Gemini API Key</string>
