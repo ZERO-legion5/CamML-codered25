@@ -24,13 +24,37 @@
         android:textSize="15sp" />
 
     <Button
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
+        android:layout_width="150dp"
+        android:layout_height="60dp"
         android:text="@string/title_activity_camera_capture"
         android:id="@+id/voice_command"
         android:layout_alignParentBottom="true"
         android:layout_centerHorizontal="true"
-        android:layout_marginBottom="20dp"/>
+        android:layout_marginBottom="15dp"/>
+
+<!--    <ImageButton-->
+<!--        android:layout_width="50dp"-->
+<!--        android:layout_height="50dp"-->
+<!--        android:layout_alignParentEnd="true"-->
+<!--        android:layout_alignParentBottom="true"-->
+<!--        android:layout_marginEnd="30dp"-->
+<!--        android:layout_marginBottom="20dp"-->
+<!--        android:background="#2196F3"-->
+<!--        android:id="@+id/convert_audio_button"-->
+<!--        android:contentDescription="@string/content_description"-->
+<!--        android:src="@drawable/baseline_headphones_24" />-->
+
+<!--    <ImageButton-->
+<!--        android:layout_width="50dp"-->
+<!--        android:layout_height="50dp"-->
+<!--        android:layout_alignParentStart="true"-->
+<!--        android:layout_alignParentBottom="true"-->
+<!--        android:layout_marginStart="30dp"-->
+<!--        android:layout_marginBottom="20dp"-->
+<!--        android:background="#2196F3"-->
+<!--        android:id="@+id/add_prompt_text"-->
+<!--        android:contentDescription="@string/content_description"-->
+<!--        android:src="@drawable/baseline_mic_24" />-->
 
     <ImageButton
         android:layout_width="50dp"
@@ -39,30 +63,6 @@
         android:layout_alignParentBottom="true"
         android:layout_marginEnd="30dp"
         android:layout_marginBottom="20dp"
-        android:background="#2196F3"
-        android:id="@+id/convert_audio_button"
-        android:contentDescription="@string/content_description"
-        android:src="@drawable/baseline_headphones_24" />
-
-    <ImageButton
-        android:layout_width="50dp"
-        android:layout_height="50dp"
-        android:layout_alignParentStart="true"
-        android:layout_alignParentBottom="true"
-        android:layout_marginStart="30dp"
-        android:layout_marginBottom="20dp"
-        android:background="#2196F3"
-        android:id="@+id/add_prompt_text"
-        android:contentDescription="@string/content_description"
-        android:src="@drawable/baseline_mic_24" />
-
-    <ImageButton
-        android:layout_width="50dp"
-        android:layout_height="50dp"
-        android:layout_alignParentEnd="true"
-        android:layout_alignParentBottom="true"
-        android:layout_marginEnd="30dp"
-        android:layout_marginBottom="290dp"
         android:background="#2196F3"
         android:id="@+id/mode_button"
         android:contentDescription="@string/content_description"
@@ -74,7 +74,7 @@
         android:layout_alignParentStart="true"
         android:layout_alignParentBottom="true"
         android:layout_marginStart="30dp"
-        android:layout_marginBottom="290dp"
+        android:layout_marginBottom="20dp"
         android:background="#2196F3"
         android:id="@+id/model_button"
         android:contentDescription="@string/content_description"

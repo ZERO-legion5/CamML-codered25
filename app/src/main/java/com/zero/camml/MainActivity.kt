@@ -100,6 +100,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var mode_value = "Navigation"
     private var model_value = "Gemini"
     private lateinit var audioManager: AudioManager
+    private lateinit var voiceCommandButton: Button
+    private var isListeningForCommand = false
     private var currentVolume: Int = -1
     private val handler1 = Handler(Looper.getMainLooper())
     private var timer: Timer? = null
@@ -291,9 +293,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             sendDataAPI(generativeModel, currentPrompt, resultView)
         }, handler)
 
+        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
+
+
+
         findViewById<Button>(R.id.voice_command).apply{
             setOnClickListener{
-                // To Implement Voice Commands
+                startListeningForCommand()
             }
         }
 
@@ -320,6 +326,18 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
         }
 
+        findViewById<ImageButton>(R.id.model_button).apply{
+            setOnLongClickListener{
+
+                startListening()
+                isSpeaking = true
+                toggleSpeech()
+                true
+
+            }
+        }
+
+
         findViewById<ImageButton>(R.id.mode_button).apply {
             setOnClickListener {
                 if (mode_value == "Navigation") {
@@ -337,24 +355,15 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
         }
 
-        imageButton = findViewById(R.id.convert_audio_button)
-        imageButton.outlineProvider = object : ViewOutlineProvider() {
-            override fun getOutline(view: View, outline: Outline) {
-                val diameter = view.width.coerceAtMost(view.height)
-                outline.setOval(0, 0, diameter, diameter)
-            }
-        }
-        imageButton.clipToOutline = true
+        findViewById<ImageButton>(R.id.mode_button).apply {
+            setOnLongClickListener {
 
-        audioButton = findViewById(R.id.add_prompt_text)
-        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
-        audioButton.outlineProvider = object : ViewOutlineProvider() {
-            override fun getOutline(view: View, outline: Outline) {
-                val diameter = view.width.coerceAtMost(view.height)
-                outline.setOval(0, 0, diameter, diameter)
+                toggleSpeech()
+                true
             }
         }
-        audioButton.clipToOutline = true
+
+        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
 
         modeButton = findViewById(R.id.mode_button)
         modeButton.outlineProvider = object : ViewOutlineProvider() {
@@ -375,20 +384,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         modelButton.clipToOutline = true
 
         textToSpeech = TextToSpeech(this, this)
-
-        imageButton.setOnClickListener {
-
-            toggleSpeech()
-
-        }
-
-        audioButton.setOnClickListener {
-
-            startListening()
-            isSpeaking = true
-            toggleSpeech()
-
-        }
 
         speechRecognizer.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
@@ -419,9 +414,16 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 if (!matches.isNullOrEmpty()) {
                     val string = matches[0]
-                    promptText = string
-                    isSpeaking = false
-                    mainfn()
+
+                    if (isListeningForCommand) {
+                        val command = matches[0].lowercase(Locale.getDefault()) // Convert to lowercase for easier matching
+                        processVoiceCommand(command)
+                        isListeningForCommand = false
+                    } else {
+                        promptText = string
+                        isSpeaking = false
+                        mainfn()
+                    }
                 }
             }
 
@@ -451,6 +453,22 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             val json = gson.toJson(conversationHistory)
             editor.putString(conversationHistoryKey, json)
             editor.apply()
+        }
+    }
+
+    private fun startListeningForCommand() {
+        mainHandler.post {
+            if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.RECORD_AUDIO), 2) // Request code 2 for command listening
+                return@post
+            }
+
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+
+            speechRecognizer.startListening(intent)
+            isListeningForCommand = true
         }
     }
 
@@ -549,13 +567,18 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
             if (newVolume > currentVolume) {
                 mainHandler.post { // Use mainHandler here too
-                    startListening()
-                    isSpeaking = true
-                    toggleSpeech()
+
+                    if (isSpeaking) {
+                        toggleSpeech()
+                    } else {
+                        startListening()
+                        isSpeaking = true
+                        toggleSpeech()
+                    }
                 }
             } else {
                 mainHandler.post { // Use mainHandler here too
-                    toggleSpeech()
+                    startListeningForCommand()
                 }
             }
 
@@ -731,6 +754,45 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 } else {
                     Toast.makeText(this, "Camera permission required", Toast.LENGTH_SHORT).show()
                 }
+            }
+
+            2 -> {
+                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    openCamera()
+                } else {
+                    Toast.makeText(this, "Audio permission required", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    private fun processVoiceCommand(command: String) {
+        when {
+            command.contains("navigation") -> {
+                mode_value = "Navigation"
+                currentPrompt = navigationPrompt
+                Toast.makeText(this, "Switching to Navigation mode", Toast.LENGTH_SHORT).show()
+            }
+            command.contains("detection") -> {
+                mode_value = "Detection"
+                currentPrompt = detectionPrompt
+                Toast.makeText(this, "Switching to Detection mode", Toast.LENGTH_SHORT).show()
+            }
+            command.contains("ocr") -> {
+                mode_value = "OCR"
+                currentPrompt = ocrPrompt
+                Toast.makeText(this, "Switching to OCR mode", Toast.LENGTH_SHORT).show()
+            }
+            command.contains("gemini") -> {
+                model_value = "Gemini"
+                Toast.makeText(this, "Switching to Gemini model", Toast.LENGTH_SHORT).show()
+            }
+            command.contains("api") -> {
+                model_value = "API"
+                Toast.makeText(this, "Switching to API model", Toast.LENGTH_SHORT).show()
+            }
+            else -> {
+                Toast.makeText(this, "Command not recognized: $command", Toast.LENGTH_SHORT).show()
             }
         }
     }
