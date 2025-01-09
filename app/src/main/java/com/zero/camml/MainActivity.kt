@@ -3,24 +3,36 @@ package com.zero.camml
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.AlertDialog
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.database.ContentObserver
 import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
 import android.graphics.Matrix
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import java.text.SimpleDateFormat
+import java.util.Date
 import android.graphics.Outline
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
+import android.media.AudioManager
 import android.media.ImageReader
+import android.media.session.MediaSession
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.Looper
 import android.os.Vibrator
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -30,6 +42,8 @@ import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.KeyEvent
+import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuItem
 import android.view.Surface
@@ -58,6 +72,8 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.util.Locale
+import java.util.Timer
+import java.util.TimerTask
 
 class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
@@ -76,9 +92,71 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var modeButton: ImageButton
     private lateinit var modelButton: ImageButton
     private lateinit var speechRecognizer: SpeechRecognizer
+    private lateinit var sharedPreferences: SharedPreferences
+    private val conversationHistoryKey = "conversationhistory"
     private var promptText = ""
     private var isSpeaking = false
     private var lastPrompt = ""
+    private var mode_value = "Navigation"
+    private var model_value = "Gemini"
+    private lateinit var audioManager: AudioManager
+    private var currentVolume: Int = -1
+    private val handler1 = Handler(Looper.getMainLooper())
+    private var timer: Timer? = null
+    private val mainHandler = Handler(Looper.getMainLooper()) // Handler for the main thread
+    private var currentPrompt: String // Store the current prompt
+    private val navigationPrompt = """
+        Prompt:
+            You are an indoor navigation assistant for smart glasses, providing guidance to the user. The user is moving within a building. Your task is to guide the user towards the nearest exit (door) while considering obstacles in their path.
+            
+            Instructions:
+            
+            *   **Exit Identification:** Identify doors within the camera's view. If multiple doors are visible, prioritize the one that appears to be the most direct route to an exit (based on its position and any visible signage).
+            *   **Obstacle Detection:** Detect any obstacles in the user's path (e.g., furniture, boxes, people).
+            *   **Path Guidance:** Provide clear and concise instructions to navigate towards the identified exit. Use relative directions (e.g., "Turn left," "Go straight," "Slightly to your right").
+            *   **Detour Planning:** If an obstacle blocks the direct path to the exit, suggest a detour *within the camera's field of view*. Do not suggest detours that would require the user to turn away from the current view. Explain the detour clearly (e.g., "Walk to the right of the table," "Go around the chair on your left").
+            *   **No Detour Available:** If no detour is possible within the current view (e.g., the entire path is blocked), inform the user: "Path blocked. Please adjust your position to find an alternate route."
+            *   **Destination Reached:** When the user is close to the exit (door), state: "You have reached the exit."
+            *   Only provide the answer. Do not provide an reply. Only provide directions if you are aware of the left right correctly.
+            Question:
+    """.trimIndent()
+
+    data class Message(val text: String, val isUser: Boolean, val timestamp: String)
+
+    private val detectionPrompt = """
+        Prompt:
+            You are an AI assistant for smart glasses, providing real-time visual information to the user. The user has asked, "What is in front of me?" Your task is to describe the scene, focusing on identifying and describing objects, their relationships to each other, and the overall context of the environment.
+            
+            Instructions:
+            *   Prioritize identifying objects that could pose a safety hazard to the user (e.g., obstacles, spills, moving objects).
+            *   Provide concise and informative descriptions of the most relevant objects in the scene.
+            *   Describe the spatial relationships between objects (e.g., "A red chair is to your left," "A table is directly ahead").
+            *   Avoid unnecessary details or repeating information. Focus on new information with each capture.
+            *   If an object is very close to the camera (within arm's reach), append "OBJ" to its description. This acts as a warning.
+            *   If asked a question, provide a specific answer.
+            *   Only provide the answer. Do not provide an reply. 
+            
+            Question:
+    """.trimIndent()
+
+    private val ocrPrompt = """
+        Prompt:
+            You are an Optical Character Recognition (OCR) system embedded in smart glasses. Your task is to extract and read text from the image provided.
+    
+            Instructions:
+            *   Accurately transcribe any text visible in the image.
+            *   Focus on clear and legible text. Ignore background elements or noise.
+            *   If the text appears to be part of a sign, label, or document, attempt to provide context (e.g., "Street sign: Main Street," "Product label: Apple Juice").
+            *   If multiple blocks of text are present, read them in a logical order (e.g., top to bottom, left to right).
+            *   If the text is unreadable or distorted, indicate "Text unreadable."
+            *   Only provide the answer. Do not provide an reply. Do not generate information if the text ends without completion.
+            
+            Question:
+    """.trimIndent()
+
+    init {
+        currentPrompt = navigationPrompt // Initialize with the default prompt
+    }
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
@@ -140,6 +218,15 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         handlerThread.start()
         handler = Handler(handlerThread.looper)
 
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        sharedPreferences = getSharedPreferences("AppPreferences", MODE_PRIVATE)
+
+        // Initial volume check
+        currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        Log.d("VolumeChange", "Initial Volume: $currentVolume")
+
+        startVolumeCheck()
+
         textureView.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
             override fun onSurfaceTextureAvailable(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
                 openCamera()
@@ -183,28 +270,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             apiKey = apiKey ?: "AIzaSyDM5TNMV437_9MNB75yVfiL1DHcqEfoVhE" // Use an empty string if API key is not found
         )
 
-        val prompt = """
-            
-            Prompt:
-            
-                Imagine you're wearing smart glasses, and I'm your AI assistant providing you with visual information. You're currently in a room and ask me, "What is in front of me?" Your question prompts me to describe the scene ahead, focusing on providing new information while avoiding repetition.
-            
-                Your task is to respond to this question as if you were the smart glasses, offering a concise yet informative description of the objects and layout directly in front of the user.
-            
-                Instructions:
-                
-                Prioritize anything that could prove harmful to the user.
-                Ensure the response contains only new information and essential details about the immediate surroundings.
-                Maintain clarity and coherence in the description to assist the user effectively.
-                Aim to provide relevant information that aids the user's understanding of their environment.
-                Dont include the word Response in the response.
-                The may require answer to a specific question. The question if available will be below.
-                Add the keyword OBJ at the end of response if it seems like a object is close to the camera like less th.
-                
-                Question:
-            
-        """.trimIndent()
-
         promptText = ""
 
         resultView = findViewById(R.id.text_view)
@@ -223,7 +288,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             opStream.close()
             image.close()
             Toast.makeText(this@MainActivity, "Processing", Toast.LENGTH_SHORT).show()
-            sendDataAPI(generativeModel, prompt, resultView)
+            sendDataAPI(generativeModel, currentPrompt, resultView)
         }, handler)
 
         findViewById<Button>(R.id.voice_command).apply{
@@ -232,15 +297,43 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
         }
 
-        findViewById<ImageButton>(R.id.model_button).apply{
-            setOnClickListener{
-                // To Implement Switching between multiple models
+        findViewById<Button>(R.id.voice_command).apply{
+
+            setOnLongClickListener{
+                val intent = Intent(this@MainActivity, ConversationHistoryActivity::class.java)
+                startActivity(intent)
+                true // Consume the long click
             }
         }
 
-        findViewById<ImageButton>(R.id.mode_button).apply{
+        findViewById<ImageButton>(R.id.model_button).apply{
             setOnClickListener{
-                // To Implement Switching between multiple modes
+
+                if (model_value == "Gemini") {
+                    model_value = "API"
+                } else if (model_value == "API") {
+                    model_value = "Gemini"
+                }
+
+                Toast.makeText(this@MainActivity, model_value, Toast.LENGTH_SHORT).show()
+
+            }
+        }
+
+        findViewById<ImageButton>(R.id.mode_button).apply {
+            setOnClickListener {
+                if (mode_value == "Navigation") {
+                    mode_value = "Detection"
+                    currentPrompt = detectionPrompt // Correctly update the class-level variable
+                } else if (mode_value == "Detection") {
+                    mode_value = "OCR"
+                    currentPrompt = ocrPrompt // Correctly update the class-level variable
+                } else if (mode_value == "OCR") {
+                    mode_value = "Navigation"
+                    currentPrompt = navigationPrompt // Correctly update the class-level variable
+                }
+
+                Toast.makeText(this@MainActivity, mode_value, Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -343,6 +436,24 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     }
 
+    private fun addMessageToHistory(message: String, isUser: Boolean) {
+        val editor = sharedPreferences.edit()
+        val gson = Gson()
+
+        val type = object : TypeToken<ArrayList<Message>>() {}.type
+        var conversationHistory: ArrayList<Message> = gson.fromJson(sharedPreferences.getString(conversationHistoryKey, null), type) ?: ArrayList()
+
+        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+        val currentDateAndTime: String = sdf.format(Date())
+
+        if (message.isNotEmpty()) {
+            conversationHistory.add(Message(message, isUser, currentDateAndTime))
+            val json = gson.toJson(conversationHistory)
+            editor.putString(conversationHistoryKey, json)
+            editor.apply()
+        }
+    }
+
     private fun showApiKeyInputDialog() {
         // Create an EditText view to input the API key
         val editText = EditText(this)
@@ -418,16 +529,38 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun startListening() {
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), 1)
-            return
+        mainHandler.post { // Execute on the main thread
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), 1)
+                return@post // Important: Return from the lambda, not the outer function
+            }
+
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+
+            speechRecognizer.startListening(intent)
         }
+    }
 
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+    private fun checkVolumeChange() {
+        val newVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        if (newVolume != currentVolume) {
 
-        speechRecognizer.startListening(intent)
+            if (newVolume > currentVolume) {
+                mainHandler.post { // Use mainHandler here too
+                    startListening()
+                    isSpeaking = true
+                    toggleSpeech()
+                }
+            } else {
+                mainHandler.post { // Use mainHandler here too
+                    toggleSpeech()
+                }
+            }
+
+            currentVolume = newVolume
+        }
     }
 
     private fun toggleSpeech() {
@@ -448,6 +581,31 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+    private fun stopVolumeCheck(){
+        timer?.cancel()
+        timer = null
+    }
+
+    override fun onPause() {
+        super.onPause()
+        stopVolumeCheck()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        startVolumeCheck()
+    }
+
+    private fun startVolumeCheck() {
+        timer = Timer()
+        timer?.scheduleAtFixedRate(object : TimerTask() {
+            override fun run() {
+                handler.post {
+                    checkVolumeChange()
+                }
+            }
+        }, 0, 1000) // Check every 1 second
+    }
 
     @RequiresApi(Build.VERSION_CODES.O)
     private fun sendDataAPI(generativeModel: GenerativeModel, prompt: String, resultView: TextView) {
@@ -464,7 +622,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     val inputContent = content {
 
                         image(bitmap)
-                        text(prompt + promptText)
+                        text(currentPrompt + promptText)
 
                     }
                     lastPrompt = promptText
@@ -473,9 +631,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     val response = generativeModel.generateContent(inputContent)
 
                     withContext(Dispatchers.Main) {
-                        // Update UI or show response
-                        // Toast.makeText(this@CameraActivity, response.text, Toast.LENGTH_LONG).show()
-                        resultView.text = response.text.toString().replace("OBJ","").trim()
+                        resultView.text = response.text.toString().replace("OBJ", "").trim()
+                        addMessageToHistory(promptText, true) // Add user message to history
+                        addMessageToHistory(response.text.toString().replace("OBJ", "").trim(), false) // Add AI response to history
                     }
 
 
@@ -593,4 +751,62 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     companion object {
         private const val CAMERA_PERMISSION_REQUEST_CODE = 1001
     }
+}
+
+// Create a new Activity: ConversationHistoryActivity.kt
+class ConversationHistoryActivity : AppCompatActivity() {
+
+    private lateinit var recyclerView: RecyclerView
+    private lateinit var adapter: ConversationAdapter
+    private lateinit var sharedPreferences: SharedPreferences
+    private val conversationHistoryKey = "conversationhistory"
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_conversation_history) // Create this layout
+
+        sharedPreferences = getSharedPreferences("AppPreferences", MODE_PRIVATE)
+        recyclerView = findViewById(R.id.conversation_recycler_view) // Add this RecyclerView to the layout
+        recyclerView.layoutManager = LinearLayoutManager(this)
+
+        loadConversationHistory()
+    }
+
+    private fun loadConversationHistory() {
+        val gson = Gson()
+        val type = object : TypeToken<ArrayList<MainActivity.Message>>() {}.type
+        val conversationHistory: ArrayList<MainActivity.Message> = gson.fromJson(sharedPreferences.getString(conversationHistoryKey, null), type) ?: ArrayList()
+
+        adapter = ConversationAdapter(conversationHistory)
+        recyclerView.adapter = adapter
+    }
+}
+
+// Create an Adapter: ConversationAdapter.kt
+class ConversationAdapter(private val messages: List<MainActivity.Message>) : RecyclerView.Adapter<ConversationAdapter.MessageViewHolder>() {
+
+    class MessageViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        val messageTextView: TextView = itemView.findViewById(R.id.message_text) // Create this TextView in item_message.xml
+        val timestampTextView: TextView = itemView.findViewById(R.id.message_timestamp)
+        val authorTextView: TextView = itemView.findViewById(R.id.message_author)
+    }
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): MessageViewHolder {
+        val view = LayoutInflater.from(parent.context).inflate(R.layout.item_message, parent, false) // Create item_message.xml
+        return MessageViewHolder(view)
+    }
+
+    override fun onBindViewHolder(holder: MessageViewHolder, position: Int) {
+        val message = messages[position]
+        holder.messageTextView.text = message.text.toTitleCase()
+        holder.timestampTextView.text = message.timestamp
+        holder.authorTextView.text = if (message.isUser) "User" else "Model"
+        // You can add logic here to differentiate user/AI messages visually
+    }
+
+    override fun getItemCount() = messages.size
+}
+
+fun String.toTitleCase(): String {
+    return split(" ").joinToString(" ") { it.capitalize() }
 }
