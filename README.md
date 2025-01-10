@@ -1,41 +1,76 @@
-CamML:
-CamML is an Android application designed to assist visually impaired users in understanding their surroundings. By leveraging the device's camera and machine learning capabilities, CamML provides real-time object detection and environmental feedback. The application also supports voice-based interactions, enabling users to provide specific prompts and receive audio feedback for a seamless, hands-free experience.
+## Overview
+**CamML** is an innovative tool designed to enhance the user experience by capturing and interpreting the user's environment. The application uses advanced AI models to detect objects, recognize text, and navigate the surroundings based on prompts provided by the user. The outputs are presented in a speech-to-speech manner, ensuring seamless interaction.
 
-Features:
-🔍 Real-Time Environment Identification
-Utilizes the device's camera to detect objects, people, and environmental elements.
-Provides meaningful and descriptive audio feedback to the user.
-🎤 Voice Interaction (Speech-to-Text)
-Users can provide prompts to ask specific questions about their environment.
-Hands-free operation for ease of use.
-🔊 Audio Feedback (Text-to-Speech)
-Converts the detected information into speech for user accessibility.
-Ensures clear and concise communication tailored to user needs.
-🤖 Machine Learning Integration
-Powered by cutting-edge machine learning models for accurate detection.
-Efficient processing to deliver results in real time.
+---
 
-How It Works:
-Camera Activation: The app uses the device's camera to capture the environment in real time.
-Object Detection: Machine learning models analyze the camera feed to identify objects and contextual elements.
-Voice Input: Users can ask questions or provide prompts via speech, which are converted to text using speech-to-text technology.
-Audio Feedback: The app conveys the detected information or responds to the user's query via text-to-speech.
+## Features
 
-Permissions Required:
-Camera: To capture the environment in real time.
-Microphone: To enable speech-to-text functionality.
-Storage (Optional): To save logs or configurations.
-Usage
-Launch the application.
-Point the camera toward the environment.
-Speak a prompt (e.g., “What’s in front of me?” or “Is there a chair nearby?”).
-Listen to the app’s audio response describing the detected objects or answering your prompt.
-Technologies Used
-Kotlin: Application development.
-Google Speech-to-Text API: For voice input handling.
-Android Text-to-Speech: For delivering audio feedback.
+### Core Functionalities:
+1. **Object Detection:**
+   - Identifies and describes objects in the user's surroundings.
+   
+2. **Optical Character Recognition (OCR):**
+   - Extracts and reads textual information from images or the environment.
+   
+3. **Navigation:**
+   - Provides navigation guidance based on user prompts and environmental data.
 
-Meet the Team:
-Sai Maharajan G
-Sam Robin Singh E
-Vasanth Kumar C
+### Additional Features:
+- **Language Support:**
+  - Supports multiple languages for a broader user base.
+- **Chat History:**
+  - Retains interaction logs for reference.
+- **Hands-Free Control:**
+  - Operates via physical buttons on the mobile handset or a Bluetooth headset.
+- **Battery Optimization:**
+  - Reduces image movement to save power.
+
+---
+
+## Technical Overview
+
+### AI Models:
+1. **Google Gemini Model:**
+   - A closed-source model for advanced AI capabilities.
+   
+2. **Self-Trained Open Source Model:**
+   - A custom model developed and trained for specific tasks.
+   
+3. **On-Device Mini Model:**
+   - A lightweight model trained on the application itself for offline functionality.
+
+### Modes:
+- **Optical Character Recognition Mode:** For reading text.
+- **Object Detection Mode:** For identifying objects.
+- **Navigation Mode:** For providing route guidance.
+
+### Speech-to-Speech Conversion:
+- User interactions and outputs are entirely in a speech-to-speech format using a text-to-speech algorithm.
+
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
+---
+
+## Contact
+
+For any inquiries, feel free to contact:
+- **Email:** your-email@example.com
+- **GitHub:** [YourGitHubUsername](https://github.com/YourGitHubUsername)
+
+---
+
+## Meet the team
+
+- Sai Maharajan G, R & D Intern @ VisAI Labs, ex-Project Engineer Intern @ e-con Systems, ex-Data Science Intern @ Quantanics TechServ.
+- Sam Robin Singh E, 3rd year Artificial Intelligence and Data Science Student
+- Vasanth Kumar C, 3rd year Artificial Intelligence and Data Science Student
+
+## Acknowledgments
+
+Special thanks to the developers, contributors, and AI community for their support and inspiration.
+
+---
