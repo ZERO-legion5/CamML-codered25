@@ -1,5 +1,6 @@
 package com.zero.camml
 
+import com.zero.camml.ml.SsdMobilenetV11Metadata1
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.AlertDialog
@@ -20,8 +21,13 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import java.text.SimpleDateFormat
 import android.content.DialogInterface
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
 import java.util.Date
 import android.graphics.Outline
+import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraDevice
@@ -55,6 +61,7 @@ import android.view.ViewOutlineProvider
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -64,10 +71,15 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.content
+import com.google.gson.JsonParser
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.tensorflow.lite.support.common.FileUtil
+import org.tensorflow.lite.support.image.ImageProcessor
+import org.tensorflow.lite.support.image.TensorImage
+import org.tensorflow.lite.support.image.ops.ResizeOp
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -96,6 +108,15 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private val apiEndpointKey = "generate_caption"
     private val client = OkHttpClient()
     private var promptText = ""
+    lateinit var labels:List<String>
+    var colors = listOf<Int>(
+        Color.BLUE, Color.GREEN, Color.RED, Color.CYAN, Color.GRAY, Color.BLACK,
+        Color.DKGRAY, Color.MAGENTA, Color.YELLOW, Color.RED)
+    val paint = Paint()
+    lateinit var imageProcessor: ImageProcessor
+    lateinit var bitmap:Bitmap
+    lateinit var imageView: ImageView
+    lateinit var model:SsdMobilenetV11Metadata1
     private var isSpeaking = false
     private var lastPrompt = ""
     private var modeValue = "Navigation"
@@ -204,7 +225,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 true
             }
             R.id.API_Endpoint -> {
-                showApiKeyInputDialog()
+                showApiEndpointInputDialog()
                 true
             }
             else -> super.onOptionsItemSelected(item)
@@ -271,6 +292,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.layout_secondary)
 
+        labels = FileUtil.loadLabels(this, "labels.txt")
+        imageProcessor = ImageProcessor.Builder().add(ResizeOp(300, 300, ResizeOp.ResizeMethod.BILINEAR)).build()
+        model = SsdMobilenetV11Metadata1.newInstance(this)
+
+        imageView = findViewById(R.id.image_view)
         textureView = findViewById(R.id.textureview)
         cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
         sharedPreferences = getSharedPreferences("AppPreferences", MODE_PRIVATE)
@@ -285,7 +311,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         // Initial volume check
         currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-        Log.d("VolumeChange", "Initial Volume: $currentVolume")
 
         startVolumeCheck()
 
@@ -304,13 +329,57 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
             override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) {
                 // Handle texture updates if needed
-                val textureView: TextureView = findViewById(R.id.textureview)
 
-                val matrix = Matrix()
-                matrix.setScale(1f, 1f) // Adjust scale factor (1f means no scaling)
+                if (modelValue == "Mini") {
+                    imageView.visibility = View.VISIBLE
+                    bitmap = textureView.bitmap!!
+                    var image = TensorImage.fromBitmap(bitmap)
+                    image = imageProcessor.process(image)
 
-                textureView.setTransform(matrix)
+                    val outputs = model.process(image)
+                    val locations = outputs.locationsAsTensorBuffer.floatArray
+                    val classes = outputs.classesAsTensorBuffer.floatArray
+                    val scores = outputs.scoresAsTensorBuffer.floatArray
+                    val numberOfDetections = outputs.numberOfDetectionsAsTensorBuffer.floatArray
 
+                    var mutable = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+                    val canvas = Canvas(mutable)
+
+                    val h = mutable.height
+                    val w = mutable.width
+                    paint.textSize = h / 15f
+                    paint.strokeWidth = h / 85f
+                    var x = 0
+                    scores.forEachIndexed { index, fl ->
+                        x = index
+                        x *= 4
+                        if (fl > 0.5) {
+                            paint.setColor(colors.get(index))
+                            paint.style = Paint.Style.STROKE
+                            canvas.drawRect(
+                                RectF(
+                                    locations.get(x + 1) * w,
+                                    locations.get(x) * h,
+                                    locations.get(x + 3) * w,
+                                    locations.get(x + 2) * h
+                                ), paint
+                            )
+                            paint.style = Paint.Style.FILL
+                            canvas.drawText(
+                                labels.get(
+                                    classes.get(index).toInt()
+                                ) + " " + fl.toString(),
+                                locations.get(x + 1) * w,
+                                locations.get(x) * h,
+                                paint
+                            )
+                        }
+                    }
+
+                    imageView.setImageBitmap(mutable)
+                } else {
+                    imageView.visibility = View.INVISIBLE
+                }
                 }
         }
 
@@ -378,6 +447,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 if (modelValue == "Gemini") {
                     modelValue = "API"
                 } else if (modelValue == "API") {
+                    modelValue = "Mini"
+                } else if (modelValue == "Mini") {
                     modelValue = "Gemini"
                 }
 
@@ -761,7 +832,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         val requestBody = MultipartBody.Builder()
                             .setType(MultipartBody.FORM)
                             .addFormDataPart(
-                                "image",
+                                "file",
                                 imageFile.name,
                                 imageFile.asRequestBody("image/jpeg".toMediaTypeOrNull())
                             )
@@ -780,13 +851,25 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                                 return@launch
                             }
 
-                            val responseBody = response.body?.string()
-                            withContext(Dispatchers.Main) {
-                                resultView.text = responseBody?.trim() ?: "No response from API"
-                                addMessageToHistory(promptText, true) // Add user message to history
-                                addMessageToHistory(responseBody?.trim() ?: "No response from API", false) // Add API response to history
+                            val responseBodyString = response.body?.string()
+
+                            var caption = ""
+
+                            if (responseBodyString != null) {
+                                // Parse the JSON response
+                                val jsonObject =
+                                    JsonParser.parseString(responseBodyString).asJsonObject
+
+                                // Extract the caption
+                                caption = jsonObject.get("caption")?.asString
+                                    ?: "Caption not found" // Handle missing caption
                             }
-                            checkAndVibrate(responseBody ?: "")
+                            withContext(Dispatchers.Main) {
+                                resultView.text = caption.trim().toTitleCase()
+                                addMessageToHistory(promptText, true) // Add user message to history
+                                addMessageToHistory(caption.trim().toTitleCase() ?: "No response from API", false) // Add API response to history
+                            }
+                            checkAndVibrate(caption ?: "")
                             isSpeaking = false
                             toggleSpeech()
                         }
@@ -900,16 +983,19 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             command.contains("navigation") -> {
                 modeValue = "Navigation"
                 currentPrompt = navigationPrompt
+                modelValue = "Gemini"
                 Toast.makeText(this, "Switching to Navigation mode", Toast.LENGTH_SHORT).show()
             }
             command.contains("detection") -> {
                 modeValue = "Detection"
                 currentPrompt = detectionPrompt
+                modelValue = "Gemini"
                 Toast.makeText(this, "Switching to Detection mode", Toast.LENGTH_SHORT).show()
             }
             command.contains("ocr") -> {
                 modeValue = "OCR"
                 currentPrompt = ocrPrompt
+                modelValue = "Gemini"
                 Toast.makeText(this, "Switching to OCR mode", Toast.LENGTH_SHORT).show()
             }
             command.contains("gemini") -> {
@@ -919,6 +1005,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             command.contains("api") -> {
                 modelValue = "API"
                 Toast.makeText(this, "Switching to API model", Toast.LENGTH_SHORT).show()
+            }
+            command.contains("mini") -> {
+                modelValue = "Mini"
+                Toast.makeText(this, "Switching to Mini model", Toast.LENGTH_SHORT).show()
             }
             else -> {
                 Toast.makeText(this, "Command not recognized: $command", Toast.LENGTH_SHORT).show()

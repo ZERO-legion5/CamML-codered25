@@ -80,4 +80,9 @@
         android:contentDescription="@string/content_description"
         android:src="@drawable/baseline_android_24" />
 
+    <ImageView
+        android:id="@+id/image_view"
+        android:layout_width="700dp"
+        android:layout_height="450dp"/>
+
 </RelativeLayout>
