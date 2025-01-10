@@ -58,8 +58,8 @@ This project is licensed under the [MIT License](LICENSE).
 ## Contact
 
 For any inquiries, feel free to contact:
-- **Email:** your-email@example.com
-- **GitHub:** [YourGitHubUsername](https://github.com/YourGitHubUsername)
+- **Email:** zerolegion5@gmail.com
+- **GitHub:** ZERO-legion5
 
 ---
 
